@@ -11,13 +11,17 @@ cloudwatch = boto3.client('cloudwatch')
 
 def lambda_handler(event, context):
     bucket_name = os.environ['BUCKET_NAME']
-    folder_name = os.environ['FOLDER_NAME']  # Specify the folder name here
+    folder_name = os.environ['FOLDER_NAME']
 
     s3 = boto3.client('s3')
 
     # Initialize object count and continuation token
     object_count = 0
     continuation_token = None
+
+    # Ensure folder name ends with a '/' to treat it as a directory prefix
+    if not folder_name.endswith('/'):
+        folder_name += '/'
 
     while True:
         # List objects with the specified folder name as prefix
@@ -33,8 +37,11 @@ def lambda_handler(event, context):
                 Prefix=folder_name
             )
 
-        # Count the number of objects in the current response
-        object_count += response.get('KeyCount', 0)
+        # Count the number of objects in the current response,
+        # ignoring zero-byte folder placeholder objects
+        for obj in response.get('Contents', []):
+            if obj['Key'] != folder_name and obj['Size'] > 0:
+                object_count += 1
 
         # Check for continuation token to see if there are more objects to list within the folder
         continuation_token = response.get('NextContinuationToken')
@@ -43,10 +50,10 @@ def lambda_handler(event, context):
 
     # Publish the count to CloudWatch
     cloudwatch.put_metric_data(
-        Namespace='S3ObjectCount',  # Custom namespace
+        Namespace='S3ObjectCount',
         MetricData=[
             {
-                'MetricName': 'ObjectCount',  # Custom metric name
+                'MetricName': 'ObjectCount',
                 'Dimensions': [
                     {
                         'Name': 'BucketName',
